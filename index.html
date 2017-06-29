@@ -1,1 +1,389 @@
-My Page
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Monads in Ruby</title>
+  <meta name="description" content="">
+  <meta name="author" content="Oleksii Drobiazko">
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="stylesheet" href="css/reveal.min.css">
+  <link rel="stylesheet" href="css/theme/serif.css" id="theme">
+  <!-- For syntax highlighting -->
+  <link rel="stylesheet" href="lib/css/zenburn.css">
+  <!-- If the query includes 'print-pdf', include the PDF print sheet -->
+  <script>
+    if( window.location.search.match( /print-pdf/gi ) ) {
+      var link = document.createElement( 'link' );
+      link.rel = 'stylesheet';
+      link.type = 'text/css';
+      link.href = 'css/print/pdf.css';
+      document.getElementsByTagName( 'head' )[0].appendChild( link );
+    }
+  </script>
+  <style type="text/css">
+    .reveal pre { box-shadow: none !important; }
+  </style>
+  <!--[if lt IE 9]>
+  <script src="lib/js/html5shiv.js"></script>
+  <![endif]-->
+</head>
+
+  <body>
+    <div class="reveal">
+      <!-- Any section element inside of this container is displayed as a slide -->
+      <div class="slides">
+        <section>
+          <h1>Monads in Ruby</h1>
+          <a href=""></a>
+        </section>
+        <section>
+          <h2>What are monads?</h2>
+        </section>
+        <section>
+          <h3>At the first glance it's something weird and dreadfull</h3>
+        </section>
+        <section>
+          <p>https://en.wikipedia.org/wiki/Monad_(functional_programming)</p>
+          <img src="img/weird-monads.png">
+        </section>
+        <section>
+          <h3>In fact monad is nothing more than</h3>
+          <ul>
+            <li>architectural pattern</li>
+            <li>wrapper around data</li>
+            <li>abstract data type, which means a kind of value with certain operations that follow certain rules</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Let's check the example</h3>
+        </section>
+        <section>
+          <h3>Object model for getting weather related to a project</h3>
+          <pre>
+            <code data-trim class="language-scala">
+Project = Struct.new(:creator)
+
+Person  = Struct.new(:address)
+
+Address = Struct.new(:country)
+
+Country = Struct.new(:capital)
+
+City    = Struct.new(:weather)
+            </code>
+          </pre>          
+        </section>
+        <section>
+          <h3>Getting wheather</h3>
+          <pre>
+            <code>
+def weather_for(project)
+  project.creator.address.country.capital.weather
+end
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h3>Not Nil-safe</h3>
+          <pre>
+            <code>
+>> bad_project = Project.new(Person.new(Address.new(nil)))
+=> #<struct Project …>
+
+>> weather_for(bad_project)
+NoMethodError: undefined method `capital' for nil:NilClass              
+            </code>
+          </pre>
+        </section>
+
+
+        <section>
+          <h3>Let's handle nil somehow</h3>
+          <pre>
+            <code>
+def weather_for(project)
+  unless project.nil?
+    creator = project.creator
+    unless creator.nil?
+      address = creator.address
+      unless address.nil?
+        country = address.country
+        unless country.nil?
+          capital = country.capital
+          unless capital.nil?
+            weather = capital.weather
+          end
+        end
+      end
+    end
+  end
+end              
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h2>Bang! Pyramid of Doom</h2>
+        </section>
+
+        <section>
+          <h2>What does Rails have to handle such cases?</h2>
+        </section>
+
+        <section>
+          <h2>ActiveSupport's Object#try</h2>
+        </section>
+
+        <section>
+          <h2>Monkey patched Object</h2>
+          <pre>
+            <code>
+class Object
+  def try(*a, &b)
+    if a.empty? && block_given?
+      yield self
+    else
+      public_send(*a, &b) if respond_to?(a.first)
+    end
+  end
+end
+
+class NilClass
+  def try(*args)
+    nil
+  end
+end              
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h2>Nil handling by Object#try</h2>
+          <pre>
+            <code>
+def weather_for(project)
+  project.
+    try(:creator).
+    try(:address).
+    try(:country).
+    try(:capital).
+    try(:weather)
+end              
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h2>Why not?</h2>
+        </section>
+
+        <section>
+          <h2>But let's check how monad abstraction can make it nil-safe</h2>
+        </section>        
+
+        <section>
+          <h3>Introducing wrapper over data</h3>
+          <pre>
+            <code>
+>> optional_string = Optional.new('hello')
+=> #&lt;struct Optional value="hello"&gt;
+
+>> optional_string.value
+=> "hello"
+
+>> optional_string = Optional.new(nil)
+=> #&lt;struct Optional value=nil&gt;
+
+>> optional_string.value
+=> nil              
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h3>Instead of putting the #try method on Object, let’s put it on Optional</h3>
+          <pre>
+            <code>
+class Optional
+  def and_then(&block)
+    if value.nil?
+      Optional.new(nil)
+    else
+      block.call(value)
+    end
+  end
+end            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h3>It works nice</h3>
+          <pre>
+            <code>
+>> optional_string = Optional.new('hello')
+=> #&lt;struct Optional value="hello"&gt;
+
+>> length = optional_string.try(:length)
+=> 5
+
+>> optional_string = Optional.new(nil)
+=> #&lt;struct Optional value=nil&gt;
+
+>> length = optional_string.try(:length)
+=> nil            
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h3>...and we can refactore the code in regards to the above</h3>
+          <pre>
+            <code>
+def weather_for(project)
+  Optional.new(project).
+    and_then { |project| Optional.new(project.creator) }.
+    and_then { |creator| Optional.new(creator.address) }.
+    and_then { |address| Optional.new(address.country) }.
+    and_then { |country| Optional.new(country.capital) }.
+    and_then { |capital| Optional.new(capital.weather) }.
+    value
+end
+            </code>     
+          </pre>
+        </section>
+
+        <section>
+          <h3>But the code still smells :(</h3>
+        </section>
+
+        <section>
+          <h3>Let's refactor it a bit by introducing the following</h3>
+          <pre>
+            <code>
+class Optional
+  def method_missing(*args, &block)
+    and_then do |value|
+      Optional.new(value.public_send(*args, &block))
+    end
+  end
+end
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h3>The code is getting nicer...</h3>
+          <pre>
+            <code>
+def weather_for(project)
+  Optional.new(project).creator.address.country.capital.weather.value
+end            
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h3>...and nicer</h3>
+          <pre>
+            <code>
+def weather_for(project)
+  project.creator.address.country.capital.weather
+end         </code>
+          </pre>
+        </section>
+
+        <section>
+          <h3>The full definition of Optional</h3>
+          <pre>
+            <code>
+Optional = Struct.new(:value) do
+  def and_then(&block)
+    if value.nil?
+      Optional.new(nil)
+    else
+      block.call(value)
+    end
+  end
+
+  def method_missing(*args, &block)
+    and_then do |value|
+      Optional.new(value.public_send(*args, &block))
+    end
+  end
+end
+            </code>
+          </pre>
+        </section>
+
+        <section>
+          <h2>Other monads</h2>
+          <ul>
+            <li>Either</li>
+            <li>Eventually</li>
+            <li>Try</li>
+            <li>...</li>
+          </ul>
+          </pre>
+        </section>
+
+        <section>
+          <h2>Gems with Monad implementation</h2>
+          <ul>
+            <li>https://github.com/pzol/monadic</li>
+            <li>https://github.com/tomstuart/monads</li>
+          </ul>
+          </pre>
+        </section>
+
+        <section>
+          <h2>Useful materials</h2>
+          <ul>
+            <li>Refactoring Ruby code with Monads - https://www.youtube.com/watch?v=J1jYlPtkrqQ&t=1122s</li>
+            <li>Monad equivalent in Ruby - https://stackoverflow.com/questions/2709361/monad-equivalent-in-ruby</li>
+            <li>Monads in Ruby (with nice syntax!) - http://www.valuedlessons.com/2008/01/monads-in-ruby-with-nice-syntax.html</li>
+            <li></li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>Q&A</h2>
+            <p>&nbsp;</p>
+          <h3>Oleksii Drobiazko</h3>
+        </section>
+
+      </div>
+        <div style="display: block; position: absolute; bottom: 14px; left: 50%; margin-left: -230px; z-index: 20;">
+          <small><a href=""></a></small>
+        </div>
+    </div>
+
+    <script src="lib/js/head.min.js"></script>
+    <script src="js/reveal.min.js"></script>
+    <script>
+      // Full list of configuration options available here:
+      // https://github.com/hakimel/reveal.js#configuration
+      Reveal.initialize({
+        controls: false,
+        progress: true,
+        history: true,
+        center: true,
+        slideNumber: true,
+        theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+        transition: 'fade', // default/cube/page/concave/zoom/linear/fade/none
+
+        // Optional libraries used to extend on reveal.js
+        dependencies: [
+          { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+          { src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+          { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+          { src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+          { src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+        ]
+      });
+    </script>
+  </body>
+</html>
